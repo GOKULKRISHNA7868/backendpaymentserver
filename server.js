@@ -23,29 +23,26 @@ const CCAVENUE_URL =
 /* CCAvenue uses AES-128-ECB (NO IV, NO CBC) */
 
 function encrypt(data, key) {
-  const cipher = crypto.createCipheriv(
-    "aes-128-ecb",
-    Buffer.from(key.substring(0, 16)),
-    null
-  );
-  cipher.setAutoPadding(true);
+  const m = crypto.createHash("md5");
+  m.update(key);
+  const keyHash = m.digest("binary");
+
+  const cipher = crypto.createCipheriv("aes-128-ecb", keyHash, "");
   let encrypted = cipher.update(data, "utf8", "hex");
   encrypted += cipher.final("hex");
   return encrypted;
 }
 
 function decrypt(encData, key) {
-  const decipher = crypto.createDecipheriv(
-    "aes-128-ecb",
-    Buffer.from(key.substring(0, 16)),
-    null
-  );
-  decipher.setAutoPadding(true);
+  const m = crypto.createHash("md5");
+  m.update(key);
+  const keyHash = m.digest("binary");
+
+  const decipher = crypto.createDecipheriv("aes-128-ecb", keyHash, "");
   let decrypted = decipher.update(encData, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
 }
-
 /* ================= ROUTES ================= */
 
 /* HEALTH CHECK */
@@ -59,18 +56,17 @@ app.post("/api/create-order", async (req, res) => {
     const order_id = "ORD_" + Date.now();
 
     /* STRICT FORMAT REQUIRED BY CCAVENUE */
-    const merchantData =
-      `merchant_id=${merchant_id}` +
-      `&order_id=${order_id}` +
-      `&currency=INR` +
-      `&amount=1.00` + // ₹1 test
-      `&redirect_url=https://backendpaymentserver.onrender.com/api/ccavenue-response` +
-      `&cancel_url=https://backendpaymentserver.onrender.com/api/ccavenue-response` +
-      `&language=EN` +
-      `&billing_name=Test User` +
-      `&billing_email=test@kridana.net` +
-      `&billing_tel=9999999999`;
-
+   const merchantData = 
+  "merchant_id=4423673" +
+  "&order_id=" + order_id +
+  "&currency=INR" +
+  "&amount=1.00" +
+  "&redirect_url=" + encodeURIComponent("https://backendpaymentserver.onrender.com/api/ccavenue-response") +
+  "&cancel_url=" + encodeURIComponent("https://backendpaymentserver.onrender.com/api/ccavenue-response") +
+  "&language=EN" +
+  "&billing_name=TestUser" +
+  "&billing_email=test@kridana.net" +
+  "&billing_tel=9999999999";
     const encryptedData = encrypt(merchantData, working_key);
 
     res.json({
