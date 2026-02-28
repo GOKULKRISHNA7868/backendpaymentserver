@@ -1,8 +1,12 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const crypto = require("crypto");
-const qs = require("querystring");
-const cors = require("cors");
+import express from "express";
+import bodyParser from "body-parser";
+import crypto from "crypto";
+import qs from "querystring";
+import cors from "cors";
+
+/* ===============================
+   APP
+   =============================== */
 
 const app = express();
 
@@ -19,7 +23,7 @@ const CCAV_ENV = "PROD";
    DOMAINS
    =============================== */
 
-const FRONTEND_DOMAIN = "https://kridana.net"; 
+const FRONTEND_DOMAIN = "https://kridana.net";
 const BACKEND_DOMAIN = "https://backendpaymentserver.onrender.com";
 
 /* ===============================
@@ -31,7 +35,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
 /* ===============================
-   ENCRYPT / DECRYPT
+   ENCRYPT / DECRYPT UTILS
    =============================== */
 
 function md5(data) {
@@ -117,12 +121,8 @@ app.post("/api/payment-response", (req, res) => {
 
     console.log("CCAvenue Response:", parsed);
 
-    /* ===============================
-       REDIRECT TO FRONTEND
-       =============================== */
-
+    // ✅ Redirect to frontend success page
     const redirectUrl = `${FRONTEND_DOMAIN}/paymentsuccesspage?${qs.stringify(parsed)}`;
-
     return res.redirect(302, redirectUrl);
 
   } catch (err) {
