@@ -6,200 +6,152 @@ const cors = require("cors");
 
 const app = express();
 
-/* ================= MIDDLEWARE ================= */
-app.use(cors());
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-/* ================= CCAvenue CONFIG ================= */
+/* ===============================
+   CONFIG
+   =============================== */
 
 const merchant_id = "4423673";
 const access_code = "AVJW88NB21AL14WJLA";
 const working_key = "4CE2CC6602914AD1FA96DF7457299700";
-const CCAV_ENV = "PROD"; // or "TEST"
+const CCAV_ENV = "PROD";
 
-const CCAVENUE_URL =
-  CCAV_ENV === "PROD"
-    ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
-    : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
+/* ===============================
+   DOMAINS
+   =============================== */
 
-/* ================= IN-MEMORY STORE ================= */
-/* ⚠️ Replace with DB/Redis in production */
-global.paymentStore = global.paymentStore || {};
+const FRONTEND_DOMAIN = "https://kridana.net"; 
+const BACKEND_DOMAIN = "https://backendpaymentserver.onrender.com";
 
-/* ================= ENCRYPTION ================= */
-/* CCAvenue Standard AES-128-ECB */
+/* ===============================
+   MIDDLEWARE
+   =============================== */
 
-function encrypt(data, key) {
-  const m = crypto.createHash("md5");
-  m.update(key);
-  const keyHash = m.digest("binary");
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
 
-  const cipher = crypto.createCipheriv("aes-128-ecb", keyHash, "");
-  let encrypted = cipher.update(data, "utf8", "hex");
+/* ===============================
+   ENCRYPT / DECRYPT
+   =============================== */
+
+function md5(data) {
+  return crypto.createHash("md5").update(data).digest();
+}
+
+function encrypt(text, workingKey) {
+  const key = md5(workingKey);
+  const iv = Buffer.from([
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+  ]);
+  const cipher = crypto.createCipheriv("aes-128-cbc", key, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
   encrypted += cipher.final("hex");
   return encrypted;
 }
 
-function decrypt(encData, key) {
-  const m = crypto.createHash("md5");
-  m.update(key);
-  const keyHash = m.digest("binary");
-
-  const decipher = crypto.createDecipheriv("aes-128-ecb", keyHash, "");
-  let decrypted = decipher.update(encData, "hex", "utf8");
+function decrypt(encText, workingKey) {
+  const key = md5(workingKey);
+  const iv = Buffer.from([
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+  ]);
+  const decipher = crypto.createDecipheriv("aes-128-cbc", key, iv);
+  let decrypted = decipher.update(encText, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
 }
 
-/* ================= HEALTH ================= */
-app.get("/", (req, res) => {
-  res.send("Kridana Payment Server Running 🚀");
-});
+/* ===============================
+   CREATE ORDER
+   =============================== */
 
-/* ================= INITIATE PAYMENT ================= */
-/* Called from frontend */
-app.post("/api/payment/initiate", (req, res) => {
-  try {
-    const { amount, order_id, customer } = req.body;
+app.post("/api/create-order", (req, res) => {
+  const order_id = "ORD" + Date.now();
 
-    const redirect_url = "https://backendpaymentserver.onrender.com/api/payment/response";
-    const cancel_url = "https://backendpaymentserver.onrender.com/api/payment/cancel";
+  const redirect_url = `${BACKEND_DOMAIN}/api/payment-response`;
+  const cancel_url = `${BACKEND_DOMAIN}/api/payment-cancel`;
 
-    const dataObj = {
-      merchant_id,
-      order_id,
-      amount,
-      currency: "INR",
-      redirect_url,
-      cancel_url,
-      language: "EN",
-      billing_name: customer.name,
-      billing_email: customer.email,
-      billing_tel: customer.phone,
-    };
+  const dataObj = {
+    merchant_id,
+    order_id,
+    currency: "INR",
+    amount: "1.00",
+    redirect_url,
+    cancel_url,
+    billing_name: "Test User",
+    billing_email: "test@kridana.net",
+    billing_tel: "9999999999",
+  };
 
-    // URL encoded string
-    const data = qs.stringify(dataObj);
+  const data = qs.stringify(dataObj);
+  const encRequest = encrypt(data, working_key);
 
-    const encRequest = encrypt(data, working_key);
+  const paymentUrl =
+    CCAV_ENV === "PROD"
+      ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
+      : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
 
-    // Save pending state
-    global.paymentStore[order_id] = {
-      status: "PENDING",
-      createdAt: Date.now(),
-      amount,
-      customer,
-    };
-
-    res.json({
-      url: CCAVENUE_URL,
-      encRequest,
-      access_code,
-      order_id,
-    });
-  } catch (err) {
-    console.error("Initiate Error:", err);
-    res.status(500).json({ success: false, error: "Payment initiation failed" });
-  }
-});
-
-/* ================= CCAvenue RESPONSE ================= */
-/* Called by CCAvenue gateway */
-app.post("/api/payment/response", (req, res) => {
-  try {
-    const encResp = req.body.encResp;
-
-    if (!encResp) {
-      return res.redirect("https://kridana.net/paymentfailed");
-    }
-
-    const decrypted = decrypt(encResp, working_key);
-    console.log("CCAvenue Decrypted Response:", decrypted);
-
-    const parsed = qs.parse(decrypted);
-
-    /*
-      parsed.order_status
-      parsed.order_id
-      parsed.tracking_id
-      parsed.payment_mode
-      parsed.amount
-      parsed.bank_ref_no
-    */
-
-    if (parsed.order_status === "Success") {
-      global.paymentStore[parsed.order_id] = {
-        status: "PAID",
-        paymentId: parsed.tracking_id,
-        amount: parsed.amount,
-        raw: parsed,
-        verifiedAt: Date.now(),
-      };
-
-      // ✅ REDIRECT USER TO FRONTEND SUCCESS PAGE
-      const query = new URLSearchParams(parsed).toString();
-      return res.redirect(`https://kridana.net/paymentsuccesspage?${query}`);
-    } else {
-      global.paymentStore[parsed.order_id] = {
-        status: "FAILED",
-        raw: parsed,
-        verifiedAt: Date.now(),
-      };
-
-      // ❌ REDIRECT TO FAILED PAGE
-      return res.redirect("https://kridana.net/paymentfailed");
-    }
-  } catch (err) {
-    console.error("Decrypt Error:", err);
-    return res.redirect("https://kridana.net/paymentfailed");
-  }
-});
-
-/* ================= VERIFY PAYMENT ================= */
-/* API for frontend polling */
-app.get("/api/payment/verify/:orderId", (req, res) => {
-  const { orderId } = req.params;
-
-  const payment = global.paymentStore[orderId];
-
-  if (!payment) {
-    return res.json({
-      success: false,
-      status: "PENDING",
-    });
-  }
-
-  if (payment.status === "PAID") {
-    return res.json({
-      success: true,
-      status: "PAID",
-      paymentId: payment.paymentId,
-      amount: payment.amount,
-    });
-  }
-
-  if (payment.status === "FAILED") {
-    return res.json({
-      success: false,
-      status: "FAILED",
-    });
-  }
-
-  return res.json({
-    success: false,
-    status: "UNKNOWN",
+  res.json({
+    url: paymentUrl,
+    encRequest,
+    access_code,
+    order_id,
   });
 });
 
-/* ================= CANCEL ================= */
-app.post("/api/payment/cancel", (req, res) => {
-  return res.redirect("https://kridana.net/paymentcancelled");
+/* ===============================
+   PAYMENT RESPONSE (FROM CCAVENUE)
+   =============================== */
+
+app.post("/api/payment-response", (req, res) => {
+  const encResp = req.body.encResp;
+
+  if (!encResp) {
+    return res.status(400).send("Invalid CCAvenue Response");
+  }
+
+  try {
+    const decrypted = decrypt(encResp, working_key);
+    const parsed = qs.parse(decrypted);
+
+    console.log("CCAvenue Response:", parsed);
+
+    /* ===============================
+       REDIRECT TO FRONTEND
+       =============================== */
+
+    const redirectUrl = `${FRONTEND_DOMAIN}/paymentsuccesspage?${qs.stringify(parsed)}`;
+
+    return res.redirect(302, redirectUrl);
+
+  } catch (err) {
+    console.error("Decrypt error:", err);
+    return res.status(500).send("Decrypt Failed");
+  }
 });
 
-/* ================= SERVER ================= */
+/* ===============================
+   PAYMENT CANCEL
+   =============================== */
+
+app.post("/api/payment-cancel", (req, res) => {
+  return res.redirect(`${FRONTEND_DOMAIN}/paymentfailed`);
+});
+
+/* ===============================
+   HEALTH
+   =============================== */
+
+app.get("/", (req, res) => {
+  res.send("Payment Server Running ✅");
+});
+
+/* ===============================
+   START SERVER
+   =============================== */
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Kridana Payment Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
