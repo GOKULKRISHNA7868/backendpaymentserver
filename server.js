@@ -159,7 +159,11 @@ app.post("/api/payment-response", (req, res) => {
 
     console.log("CCAvenue Response:", parsed);
 
-    const redirectUrl = `${FRONTEND_DOMAIN}/paymentsuccesspage?${qs.stringify(parsed)}`;
+   const redirectUrl = `${FRONTEND_DOMAIN}/paymentsuccesspage?${qs.stringify({
+  ...parsed,
+  planType: parsed.merchant_param2,
+  uid: parsed.merchant_param1
+})}`;
     return res.redirect(302, redirectUrl);
 
   } catch (err) {
