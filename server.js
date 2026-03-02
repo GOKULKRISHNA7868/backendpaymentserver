@@ -90,17 +90,27 @@ app.post("/api/create-order", (req, res) => {
     const redirect_url = `${BACKEND_DOMAIN}/api/payment-response`;
     const cancel_url = `${BACKEND_DOMAIN}/api/payment-cancel`;
 
-    const dataObj = {
-      merchant_id,
-      order_id,
-      currency: "INR",
-      amount: "1.00",
-      redirect_url,
-      cancel_url,
-      billing_name: "Test User",
-      billing_email: "test@kridana.net",
-      billing_tel: "9999999999",
-    };
+    const { amount, planType, uid, email } = req.body;
+
+if (!amount || !planType || !uid || !email) {
+  return res.status(400).json({ error: "Missing required fields" });
+}
+
+const dataObj = {
+  merchant_id,
+  order_id,
+  currency: "INR",
+  amount: String(amount),   // ✅ dynamic amount
+  redirect_url,
+  cancel_url,
+
+  billing_name: email.split("@")[0] || "User",
+  billing_email: email,
+  billing_tel: "9999999999",
+
+  merchant_param1: uid,        // ✅ pass uid to ccavenue
+  merchant_param2: planType,   // ✅ pass planType to ccavenue
+};
 
     const data = qs.stringify(dataObj);
     const encRequest = encrypt(data, working_key);
