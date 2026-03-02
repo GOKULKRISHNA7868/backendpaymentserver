@@ -71,6 +71,7 @@ function decrypt(encText, workingKey) {
    =============================== */
 
 app.post("/api/create-order", (req, res) => {
+  const { amount, planType, uid, email } = req.body;   // 👈 NEW
   const order_id = "ORD" + Date.now();
 
   const redirect_url = `${BACKEND_DOMAIN}/api/payment-response`;
@@ -80,12 +81,18 @@ app.post("/api/create-order", (req, res) => {
     merchant_id,
     order_id,
     currency: "INR",
-    amount: "1.00",
+    amount: amount || "1.00",      // 👈 dynamic amount
     redirect_url,
     cancel_url,
-    billing_name: "Test User",
-    billing_email: "test@kridana.net",
+
+    // customer
+    billing_name: "Kridana User",
+    billing_email: email || "test@kridana.net",
     billing_tel: "9999999999",
+
+    // 🔥 custom fields (will return after payment)
+    merchant_param1: planType || "UNKNOWN_PLAN",
+    merchant_param2: uid || "UNKNOWN_UID"
   };
 
   const data = qs.stringify(dataObj);
